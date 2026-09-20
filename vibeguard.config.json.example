@@ -33,7 +33,14 @@
       "aadhaar",
       "ssn",
       "kpp",
-      "passport_ru"
+      "passport_ru",
+      "foreign_passport",
+      "driver_license",
+      "oms",
+      "bank_account",
+      "card",
+      "imei",
+      "ipv6"
     ],
     "context_window": 30,
     "exclude": ["example.com", "localhost", "127.0.0.1", "0.0.0.0"]

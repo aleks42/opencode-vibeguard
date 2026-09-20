@@ -23,6 +23,16 @@ Placeholder format (aligned with VibeGuard):
 - Shape: `__VG_<CATEGORY>_<hash12>__` or `__VG_<CATEGORY>_<hash12>_<N>__`
 - `hash12` is the first 12 hex chars of `HMAC-SHA256(session-random secret, original)`, stable within a session and irreversible to the provider
 
+## Coverage and limitations
+
+- During streaming (`text-delta`) a placeholder may briefly appear; it is restored at `text-end`.
+- National phone numbers (no `+`) are redacted only when a nearby label (e.g. `phone`, `tel`, `mobile`) is present; an unlabelled national number is left intact. International `+` numbers need no label.
+- Checksum-based types (`snils`, `inn`, `iban`, `cpf`, `cnpj`, `ogrn`, `ogrnip`, `pesel`, `aadhaar`, `card`, `imei`) redact only values that pass their checksum; made-up or invalid numbers are left untouched.
+- IBAN is matched only in contiguous form (e.g. `GB82WEST12345698765432`); a space-separated IBAN is **not** redacted.
+- `passport_ru` and `driver_license` share the same `2+2+6` digit shape and are distinguished solely by their context label.
+- Context-gated types (`inn` 10-digit, `ogrn`, `ogrnip`, `pesel`, `aadhaar`, `ssn`, `kpp`, `passport_ru`, `foreign_passport`, `driver_license`, `oms`, `bank_account`, and national `phone`) require a label within `patterns.context_window` characters (default `30`).
+- Placeholders are stable only within a single session; the HMAC secret is random per process, so they cannot be restored after a restart.
+
 ## Install / Use (local dev)
 
 1. Put this plugin directory in your project (e.g. `./opencode-vibeguard/`).
@@ -111,6 +121,13 @@ List the ones you want in `patterns.builtin` (a builtin is only active if listed
 | `ssn` | US SSN | structural | yes |
 | `kpp` | Russian KPP | structural | yes |
 | `passport_ru` | Russian passport number | label only | yes |
+| `foreign_passport` | Russian foreign passport number | label only | yes |
+| `driver_license` | Russian driving licence number | label only | yes |
+| `oms` | Russian compulsory medical insurance policy (16-digit ENP) | label only | yes |
+| `bank_account` | Russian 20-digit settlement account | label only (BIK-dependent checksum) | yes |
+| `card` | Payment cards (Visa/MasterCard/Mir/Amex/JCB/Diners/Discover) | Luhn + IIN | no |
+| `imei` | IMEI device identifiers | Luhn | no |
+| `ipv6` | IPv6 addresses | structural | no |
 
 Checksum types use intentionally broad regexes; precision comes from the validator, so only values passing the checksum are redacted. Types marked "context label required" additionally need one of their labels (e.g. `INN`, `OGRN`, `passport`) to appear within `patterns.context_window` characters of the match (default `30`, override with `patterns.context_window`). When two rules match the same span, the context-gated rule wins.
 
@@ -138,7 +155,3 @@ Or set in `vibeguard.config.json`:
 ```json
 { "debug": true }
 ```
-
-## Known limitations
-
-- During streaming (`text-delta`) the placeholder may briefly appear; it will be restored at `text-end`.

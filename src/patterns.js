@@ -228,6 +228,106 @@ export function nationalPhone(input) {
   return d.length >= 7 && d.length <= 15
 }
 
+/** Luhn (mod 10) checksum over the digits of the input. */
+export function luhn(input) {
+  const d = onlyDigits(input)
+  if (!d) return false
+  let sum = 0
+  let double = false
+  for (let i = d.length - 1; i >= 0; i--) {
+    let n = Number(d[i])
+    if (double) {
+      n *= 2
+      if (n > 9) n -= 9
+    }
+    sum += n
+    double = !double
+  }
+  return sum % 10 === 0
+}
+
+/**
+ * Issuer identification number (IIN) prefix check for payment cards. Keeps the
+ * common international schemes plus Russian Mir. This is prefix-only; allowed
+ * lengths are enforced by `card` (so e.g. a 15-digit IMEI starting with `49`
+ * is not mistaken for a Visa).
+ */
+export function cardIin(input) {
+  const d = onlyDigits(input)
+  if (d.length < 13) return false
+  const p1 = Number(d[0])
+  const p2 = Number(d.slice(0, 2))
+  const p3 = Number(d.slice(0, 3))
+  const p4 = Number(d.slice(0, 4))
+  if (p1 === 4) return true // Visa
+  if (p4 >= 2200 && p4 <= 2204) return true // Mir
+  if (p2 >= 51 && p2 <= 55) return true // MasterCard
+  if (p4 >= 2221 && p4 <= 2720) return true // MasterCard
+  if (p2 === 34 || p2 === 37) return true // American Express
+  if (p4 >= 3528 && p4 <= 3589) return true // JCB
+  if (p3 >= 300 && p3 <= 305) return true // Diners Club
+  if (p2 === 36 || p2 === 38 || p2 === 39) return true // Diners Club
+  if (d.startsWith("6011") || p2 === 65 || (p3 >= 644 && p3 <= 649)) return true // Discover
+  return false
+}
+
+/** Allowed PAN lengths per scheme, so 15-digit IMEIs do not pass as cards. */
+function cardLengthOk(d) {
+  const p1 = Number(d[0])
+  const p2 = Number(d.slice(0, 2))
+  const p4 = Number(d.slice(0, 4))
+  const len = d.length
+  if (p1 === 4) return len === 13 || len === 16 || len === 19 // Visa
+  if (p4 >= 2200 && p4 <= 2204) return len >= 16 && len <= 19 // Mir
+  if ((p2 >= 51 && p2 <= 55) || (p4 >= 2221 && p4 <= 2720)) return len === 16 // MasterCard
+  if (p2 === 34 || p2 === 37) return len === 15 // American Express
+  if (p4 >= 3528 && p4 <= 3589) return len >= 16 && len <= 19 // JCB
+  if ((p2 >= 36 && p2 <= 39) || (Number(d.slice(0, 3)) >= 300 && Number(d.slice(0, 3)) <= 305)) {
+    return len >= 14 && len <= 19 // Diners Club
+  }
+  return len >= 16 && len <= 19 // Discover
+}
+
+/** Payment card: Luhn checksum, known IIN prefix and a scheme-valid length. */
+export function card(input) {
+  const d = onlyDigits(input)
+  if (d.length < 13 || d.length > 19) return false
+  if (!luhn(d)) return false
+  if (!cardIin(d)) return false
+  return cardLengthOk(d)
+}
+
+/** IMEI: 15 digits with a Luhn checksum. */
+export function imei(input) {
+  const d = onlyDigits(input)
+  return d.length === 15 && luhn(d)
+}
+
+/**
+ * IPv6 structural validation: at most one `::`, each explicit group is 1-4 hex
+ * digits, at least two colons, optional `%zone` suffix. Embedded IPv4
+ * (`::ffff:192.0.2.1`) is intentionally not supported.
+ */
+export function ipv6(input) {
+  let s = String(input ?? "").trim()
+  const pct = s.indexOf("%")
+  if (pct !== -1) s = s.slice(0, pct)
+  if (!s) return false
+  if ((s.match(/:/g) ?? []).length < 2) return false
+  if (s.indexOf("::") !== s.lastIndexOf("::")) return false
+
+  const hasDouble = s.includes("::")
+  let head = s
+  let tail = ""
+  if (hasDouble) [head, tail] = s.split("::")
+
+  const headParts = head === "" ? [] : head.split(":")
+  const tailParts = tail === "" ? [] : tail.split(":")
+  const parts = [...headParts, ...tailParts]
+  if (parts.some((p) => !/^[0-9A-Fa-f]{1,4}$/.test(p))) return false
+  return hasDouble ? parts.length <= 7 : parts.length === 8
+}
+
 /** Validator set for tests and future iterations. */
 export const validators = {
   snils,
@@ -244,6 +344,11 @@ export const validators = {
   kpp,
   intlPhone,
   nationalPhone,
+  luhn,
+  cardIin,
+  card,
+  imei,
+  ipv6,
 }
 
 /**
@@ -278,6 +383,10 @@ const SSN_CONTEXT = labelContext(["SSN", "social security"], [])
 const KPP_CONTEXT = labelContext(["KPP"], ["КПП"])
 const PASSPORT_CONTEXT = labelContext(["passport"], ["паспорт", "серия"])
 const PHONE_CONTEXT = labelContext(["phone", "tel", "mobile", "cell", "call"], ["тел", "телефон", "моб", "сотов"])
+const BANK_ACCOUNT_CONTEXT = labelContext(["account"], ["р/с", "расчетный", "расчётный", "лицевой", "номер счета", "номер счёта"])
+const OMS_CONTEXT = labelContext(["OMS", "medical insurance", "insurance policy"], ["полис", "омс", "медицинск"])
+const FOREIGN_PASSPORT_CONTEXT = labelContext(["foreign passport"], ["загранпаспорт", "заграничный", "паспорт гражданина"])
+const DRIVER_LICENSE_CONTEXT = labelContext(["driver", "driving license", "driving licence"], ["водительск", "вод. удост", "удостоверение водителя"])
 
 /**
  * Built-in rules: ported from VibeGuard's builtin rules (with JS compatibility
@@ -462,7 +571,7 @@ const BUILTIN = new Map([
     [
       {
         // International format: the leading `+` is a strong signal, so no label
-        // is required. Handles `+7 (999) 123-45-67`, `+86 138 0013 8000`.
+        // is required. Handles `+7 999 123-45-67`, `+1 (555) 123-4567`.
         pattern: String.raw`(?<![\d+])\+\d(?:[\s().\-]*\d){6,14}(?![\d])`,
         flags: "",
         category: "PHONE",
@@ -481,6 +590,79 @@ const BUILTIN = new Map([
         context: PHONE_CONTEXT,
       },
     ],
+  ],
+  [
+    "card",
+    {
+      // Broad 13-19 digit run with optional single separators; precision comes
+      // from the Luhn checksum plus a known IIN prefix (see `card`).
+      pattern: String.raw`(?<!\d)\d(?:[ -]?\d){12,18}(?!\d)`,
+      flags: "",
+      category: "CARD",
+      validate: card,
+    },
+  ],
+  [
+    "imei",
+    {
+      pattern: String.raw`(?<!\d)\d{15}(?!\d)`,
+      flags: "",
+      category: "IMEI",
+      validate: imei,
+    },
+  ],
+  [
+    "ipv6",
+    {
+      pattern: String.raw`(?<![\w:.])(?=[\da-fA-F:]*:[\da-fA-F:]*:)[\da-fA-F:]+(?:%[0-9A-Za-z]+)?(?![\w:.])`,
+      flags: "",
+      category: "IPV6",
+      validate: ipv6,
+    },
+  ],
+  [
+    "bank_account",
+    {
+      // 20-digit Russian settlement account has no standalone checksum (the
+      // control digit requires the BIK), so a nearby label is the only gate.
+      pattern: String.raw`(?<!\d)\d{20}(?!\d)`,
+      flags: "",
+      category: "BANK_ACCOUNT",
+      context: BANK_ACCOUNT_CONTEXT,
+    },
+  ],
+  [
+    "oms",
+    {
+      // New 16-digit compulsory medical insurance policy (ENP). No confirmed
+      // public checksum, so it stays structural and label-gated.
+      pattern: String.raw`(?<!\d)\d{16}(?!\d)`,
+      flags: "",
+      category: "OMS",
+      context: OMS_CONTEXT,
+    },
+  ],
+  [
+    "foreign_passport",
+    {
+      // Russian foreign passport: 2 digits + 7 digits. Overlaps the 4+6
+      // domestic shape in length, so it relies on its own labels.
+      pattern: String.raw`(?<!\d)\d{2}\s?\d{7}(?!\d)`,
+      flags: "",
+      category: "FOREIGN_PASSPORT",
+      context: FOREIGN_PASSPORT_CONTEXT,
+    },
+  ],
+  [
+    "driver_license",
+    {
+      // Russian driving licence: 2+2+6 digits. Same shape as `passport_ru`, so
+      // only the context label disambiguates.
+      pattern: String.raw`(?<!\d)\d{2}\s?\d{2}\s?\d{6}(?!\d)`,
+      flags: "",
+      category: "DRIVER_LICENSE",
+      context: DRIVER_LICENSE_CONTEXT,
+    },
   ],
 ])
 
