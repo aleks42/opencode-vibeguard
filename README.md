@@ -94,7 +94,7 @@ List the ones you want in `patterns.builtin` (a builtin is only active if listed
 | Name | Matches | Validation | Context label required |
 | --- | --- | --- | --- |
 | `email` | email addresses | - | no |
-| `china_phone` | Chinese mobile numbers | - | no |
+| `phone` | phone numbers (`+` international without label; national grouped with label) | structural | national only |
 | `china_id` | Chinese ID numbers | - | no |
 | `uuid` | UUIDs | - | no |
 | `ipv4` | IPv4 addresses | - | no |
@@ -113,6 +113,10 @@ List the ones you want in `patterns.builtin` (a builtin is only active if listed
 | `passport_ru` | Russian passport number | label only | yes |
 
 Checksum types use intentionally broad regexes; precision comes from the validator, so only values passing the checksum are redacted. Types marked "context label required" additionally need one of their labels (e.g. `INN`, `OGRN`, `passport`) to appear within `patterns.context_window` characters of the match (default `30`, override with `patterns.context_window`). When two rules match the same span, the context-gated rule wins.
+
+### Exclusions
+
+`patterns.exclude` is a list of literals that must never be redacted (e.g. `example.com`, `localhost`, `127.0.0.1`, `0.0.0.0`). Each entry is matched as a case-insensitive substring with word-ish boundaries, so the literal only matches when it is not flanked by `[A-Za-z0-9_.-]`. This means `example.com` skips `user@example.com` but not `user@myexample.com`, and `127.0.0.1` skips the address itself but not `127.0.0.11`.
 
 ## Tests
 

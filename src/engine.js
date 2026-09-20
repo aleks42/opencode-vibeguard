@@ -42,6 +42,18 @@ function insertCovered(covered, span) {
 }
 
 /**
+ * True when the matched value is excluded (any matcher, literal with boundaries).
+ * @param {Array<RegExp>} exclude
+ * @param {string} value
+ */
+function isExcluded(exclude, value) {
+  for (const re of exclude) {
+    if (re.test(value)) return true
+  }
+  return false
+}
+
+/**
  * True when any context gate (string or RegExp) matches the window text.
  * @param {Array<string|RegExp>} context
  * @param {string} window
@@ -62,7 +74,7 @@ function matchesContext(context, window) {
  * Design matches VibeGuard's redact engine: handles overlapping matches so that
  * placeholders are never split apart.
  * @param {string} input
- * @param {{ keywords: Array<{value:string,category:string}>, regex: Array<{pattern:string,flags:string,category:string}>, exclude: Set<string>, contextWindow?: number }} patterns
+ * @param {{ keywords: Array<{value:string,category:string}>, regex: Array<{pattern:string,flags:string,category:string}>, exclude: Array<RegExp>, contextWindow?: number }} patterns
  * @param {{ getOrCreatePlaceholder(original: string, category: string): string }} session
  */
 export function redactText(input, patterns, session) {
@@ -83,7 +95,7 @@ export function redactText(input, patterns, session) {
       const end = pos + needle.length
       const original = text.slice(start, end)
       idx = end
-      if (patterns.exclude.has(original)) continue
+      if (isExcluded(patterns.exclude, original)) continue
       found.push({ start, end, original, category: rule.category })
     }
   }
@@ -98,7 +110,7 @@ export function redactText(input, patterns, session) {
       if (start < 0) continue
       const end = start + m[0].length
       const original = text.slice(start, end)
-      if (patterns.exclude.has(original)) continue
+      if (isExcluded(patterns.exclude, original)) continue
       // Checksum types: regex is loose, precision comes from validate (types
       // without a checksum simply omit this field)
       if (rule.validate && !rule.validate(original)) continue

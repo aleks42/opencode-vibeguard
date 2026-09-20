@@ -51,7 +51,7 @@ export function restoreDeep(value, session) {
  * - Only walks Array / PlainObject
  * - Uses a WeakSet to avoid blowing the stack on cyclic references
  * @param {unknown} value
- * @param {{ keywords: Array<{value:string,category:string}>, regex: Array<{pattern:string,flags:string,category:string}>, exclude: Set<string> }} patterns
+ * @param {{ keywords: Array<{value:string,category:string}>, regex: Array<{pattern:string,flags:string,category:string}>, exclude: Array<RegExp> }} patterns
  * @param {{ getOrCreatePlaceholder(original: string, category: string): string }} session
  */
 export function redactDeep(value, patterns, session) {

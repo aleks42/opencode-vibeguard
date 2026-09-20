@@ -17,7 +17,7 @@
     ],
     "builtin": [
       "email",
-      "china_phone",
+      "phone",
       "china_id",
       "uuid",
       "ipv4",

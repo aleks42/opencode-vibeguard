@@ -205,8 +205,46 @@ export function kpp(input) {
   return /^\d{4}[A-Z0-9]{2}\d{3}$/.test(String(input ?? "").trim().toUpperCase())
 }
 
+/**
+ * International phone (leading `+`): only phone-ish characters, 8-15 digits
+ * (E.164 range), and the first digit after `+` must not be 0.
+ */
+export function intlPhone(input) {
+  const s = String(input ?? "")
+  if (!/^\+[\d\s().-]+$/.test(s)) return false
+  const d = onlyDigits(s)
+  if (d.length < 8 || d.length > 15) return false
+  return d[0] !== "0"
+}
+
+/**
+ * National phone (no `+`): only phone-ish characters, 7-15 digits. This is a
+ * loose shape check; precision comes from the requirement of a nearby label.
+ */
+export function nationalPhone(input) {
+  const s = String(input ?? "")
+  if (!/^[\d\s().-]+$/.test(s)) return false
+  const d = onlyDigits(s)
+  return d.length >= 7 && d.length <= 15
+}
+
 /** Validator set for tests and future iterations. */
-export const validators = { snils, inn10, inn12, mod97, cpf, cnpj, ogrn13, ogrnip15, pesel, verhoeff, usSsn, kpp }
+export const validators = {
+  snils,
+  inn10,
+  inn12,
+  mod97,
+  cpf,
+  cnpj,
+  ogrn13,
+  ogrnip15,
+  pesel,
+  verhoeff,
+  usSsn,
+  kpp,
+  intlPhone,
+  nationalPhone,
+}
 
 /**
  * Label gate builders for context-aware rules. Latin labels get word boundaries
@@ -239,6 +277,7 @@ const AADHAAR_CONTEXT = labelContext(["Aadhaar", "UIDAI"], [])
 const SSN_CONTEXT = labelContext(["SSN", "social security"], [])
 const KPP_CONTEXT = labelContext(["KPP"], ["КПП"])
 const PASSPORT_CONTEXT = labelContext(["passport"], ["паспорт", "серия"])
+const PHONE_CONTEXT = labelContext(["phone", "tel", "mobile", "cell", "call"], ["тел", "телефон", "моб", "сотов"])
 
 /**
  * Built-in rules: ported from VibeGuard's builtin rules (with JS compatibility
@@ -256,15 +295,6 @@ const BUILTIN = new Map([
       pattern: String.raw`[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}`,
       flags: "i",
       category: "EMAIL",
-    },
-  ],
-  [
-    "china_phone",
-    {
-      // Match the phone number itself (lookaround replaces Go's capture-group boundary approach)
-      pattern: String.raw`(?<!\d)1[3-9]\d{9}(?!\d)`,
-      flags: "",
-      category: "CHINA_PHONE",
     },
   ],
   [
@@ -427,6 +457,31 @@ const BUILTIN = new Map([
       context: PASSPORT_CONTEXT,
     },
   ],
+  [
+    "phone",
+    [
+      {
+        // International format: the leading `+` is a strong signal, so no label
+        // is required. Handles `+7 (999) 123-45-67`, `+86 138 0013 8000`.
+        pattern: String.raw`(?<![\d+])\+\d(?:[\s().\-]*\d){6,14}(?![\d])`,
+        flags: "",
+        category: "PHONE",
+        validate: intlPhone,
+      },
+      {
+        // National format without country code: the shape is too generic to
+        // trust on its own, so a nearby label is required. Handles
+        // `8 900 123 45 67`, `(495) 123-45-67`, `020 7946 0958`.
+        // The second lookbehind stops it from re-matching the tail of a number
+        // already covered by the international rule.
+        pattern: String.raw`(?<![\d+])(?<!\+[\d\s().-]{0,20})(?:\(\d{2,4}\)|\d{2,4})(?:[\s.()-]+\d{2,4}){1,3}(?![\d])`,
+        flags: "",
+        category: "PHONE",
+        validate: nationalPhone,
+        context: PHONE_CONTEXT,
+      },
+    ],
+  ],
 ])
 
 export function buildPatternSet(patterns) {
@@ -479,14 +534,24 @@ export function buildPatternSet(patterns) {
     }
   }
 
-  const excludeSet = new Set(exclude.map((x) => String(x ?? "")))
+  const excludeMatchers = exclude
+    .map((x) => String(x ?? "").trim())
+    .filter(Boolean)
+    .map((entry) => {
+      // Literal, case-insensitive substring with alphanumeric/dot/dash boundaries:
+      // `example.com` skips `user@example.com` but not `myexample.com`, and
+      // `127.0.0.1` skips the IP but not `127.0.0.10` or a placeholder tail.
+      const escaped = entry.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+      return new RegExp(`(?<![\\w.-])${escaped}(?![\\w.-])`, "i")
+    })
+
   const contextWindow =
     Number.isFinite(raw.context_window) && Number(raw.context_window) >= 0 ? Number(raw.context_window) : 30
 
   return {
     keywords: keywordRules,
     regex: regexRules,
-    exclude: excludeSet,
+    exclude: excludeMatchers,
     contextWindow,
   }
 }
