@@ -33,6 +33,43 @@ Placeholder format (aligned with VibeGuard):
 - Context-gated types (`inn` 10-digit, `ogrn`, `ogrnip`, `pesel`, `aadhaar`, `ssn`, `kpp`, `passport_ru`, `foreign_passport`, `driver_license`, `oms`, `bank_account`, and national `phone`) require a label within `patterns.context_window` characters (default `30`).
 - Placeholders are stable only within a single session; the HMAC secret is random per process, so they cannot be restored after a restart.
 
+## Guiding the model to work with placeholders
+
+The plugin keeps plaintext away from the provider, but a model can still waste
+turns trying to recover a value behind a `__VG_*__` placeholder (reading `.env`,
+echoing variables, decoding tokens, or asking you to reveal the value). Add a
+short instruction file so the model treats placeholders as opaque literals and
+uses them verbatim.
+
+1. Add this text to the global AGENTS.md or somewhere else:
+
+```markdown
+## Sensitive-value placeholders
+
+Tokens shaped `__VG_<CATEGORY>_<hash12>__` (for example
+`john.doe@corp.org`) are redaction placeholders created by the
+opencode-vibeguard plugin. Treat them as opaque, valid literals:
+
+- Never decode, restore, reverse, or otherwise try to learn the value behind a
+  placeholder (no decoding tricks, reverse lookups, checksum probing, or brute
+  force).
+- Never read files, environment variables, or process memory hoping to find the
+  real value, and do not ask the user to reveal it.
+- Use placeholders verbatim wherever a value is needed (code, commands, file
+  contents, answers). The plugin substitutes the real value locally at
+  tool-execution time when that is actually required.
+- If a task seems to need the real value, proceed with the placeholder and
+  explain what you would do with it.
+```
+
+2. Restart opencode so the new instructions load (config is read once at
+   startup and is not hot-reloaded).
+
+Optional hardening: deny commands that would dump secrets, e.g.
+`"permission": { "bash": { "cat .env*": "deny", "printenv*": "deny", "*": "allow" } }`.
+`permission.bash` matches command text, so this is a guardrail, not a
+security boundary.
+
 ## Install / Use (local dev)
 
 1. Put this plugin directory in your project (e.g. `./opencode-vibeguard/`).
