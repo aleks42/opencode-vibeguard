@@ -14,10 +14,10 @@ function toHexLower(buffer) {
 }
 
 /**
- * 会话内占位符映射管理器：
- * - 生成占位符：__VG_<CATEGORY>_<hash12>__（与 VibeGuard 一致）
- * - hash12：HMAC-SHA256(会话随机 secret, 原文) 的 12 位十六进制小写截断
- * - 维护 placeholder <-> original 的双向映射，用于工具执行前还原
+ * Per-session placeholder mapping manager:
+ * - Generates placeholders: __VG_<CATEGORY>_<hash12>__ (aligned with VibeGuard)
+ * - hash12: first 12 lowercase hex chars of HMAC-SHA256(session secret, original)
+ * - Maintains placeholder <-> original bidirectional mappings for restoration before tool execution
  */
 export class PlaceholderSession {
   /**
@@ -73,7 +73,7 @@ export class PlaceholderSession {
   }
 
   /**
-   * 与 VibeGuard 一致：placeholder = `${prefix}${CATEGORY}_${hash12}__`
+   * Aligned with VibeGuard: placeholder = `${prefix}${CATEGORY}_${hash12}__`
    * @param {string} original
    * @param {string} category
    */
@@ -88,8 +88,8 @@ export class PlaceholderSession {
   }
 
   /**
-   * 获取或创建占位符，并注册映射。
-   * 设计目标：同一会话内，同一 original 始终映射到同一 placeholder。
+   * Get or create a placeholder and register the mapping.
+   * Goal: within a session, the same original always maps to the same placeholder.
    * @param {string} original
    * @param {string} category
    */
@@ -119,8 +119,9 @@ export class PlaceholderSession {
       return base
     }
 
-    // 极低概率：hash12 冲突。追加 _N 后缀保证唯一性（与 VibeGuard 一致的策略）。
-    const withoutSuffix = base.slice(0, -2) // 去掉末尾 "__"
+    // Extremely unlikely: hash12 collision. Append an _N suffix to guarantee
+    // uniqueness (same strategy as VibeGuard).
+    const withoutSuffix = base.slice(0, -2) // strip the trailing "__"
     for (let i = 2; ; i++) {
       const candidate = `${withoutSuffix}_${i}__`
       const prev = this.forward.get(candidate)

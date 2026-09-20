@@ -9,9 +9,10 @@ function isPlainObject(value) {
 }
 
 /**
- * 深度遍历工具参数对象，把所有字符串里的占位符还原为原值（原地修改）。
- * - 只遍历 Array / PlainObject
- * - 使用 WeakSet 避免循环引用导致爆栈
+ * Deep-walk a tool-args object and restore placeholders to original values in
+ * every string (in place).
+ * - Only walks Array / PlainObject
+ * - Uses a WeakSet to avoid blowing the stack on cyclic references
  * @param {unknown} value
  * @param {{ prefix: string, lookup(ph: string): string | undefined }} session
  */
@@ -45,9 +46,10 @@ export function restoreDeep(value, session) {
 }
 
 /**
- * 深度遍历对象，把所有字符串中的敏感内容替换为占位符（原地修改）。
- * - 只遍历 Array / PlainObject
- * - 使用 WeakSet 避免循环引用导致爆栈
+ * Deep-walk an object and replace sensitive content in every string with
+ * placeholders (in place).
+ * - Only walks Array / PlainObject
+ * - Uses a WeakSet to avoid blowing the stack on cyclic references
  * @param {unknown} value
  * @param {{ keywords: Array<{value:string,category:string}>, regex: Array<{pattern:string,flags:string,category:string}>, exclude: Set<string> }} patterns
  * @param {{ getOrCreatePlaceholder(original: string, category: string): string }} session

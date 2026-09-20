@@ -1,5 +1,3 @@
-English | [中文](README-zh.md)
-
 [![npm](https://img.shields.io/npm/v/opencode-vibeguard)](https://www.npmjs.com/package/opencode-vibeguard)
 [![downloads](https://img.shields.io/npm/dm/opencode-vibeguard)](https://www.npmjs.com/package/opencode-vibeguard)
 [![license](https://img.shields.io/github/license/inkdust2021/opencode-vibeguard)](LICENSE)
@@ -88,6 +86,38 @@ Config lookup order (first match wins):
 4. Global dir: `~/.config/opencode/vibeguard.config.json`
 
 See `vibeguard.config.json.example` for an example.
+
+### Built-in patterns
+
+List the ones you want in `patterns.builtin` (a builtin is only active if listed):
+
+| Name | Matches | Validation | Context label required |
+| --- | --- | --- | --- |
+| `email` | email addresses | - | no |
+| `china_phone` | Chinese mobile numbers | - | no |
+| `china_id` | Chinese ID numbers | - | no |
+| `uuid` | UUIDs | - | no |
+| `ipv4` | IPv4 addresses | - | no |
+| `mac` | MAC addresses | - | no |
+| `snils` | Russian SNILS | checksum | no |
+| `inn` | Russian INN (10- and 12-digit) | checksum | 10-digit only |
+| `iban` | IBAN (any country) | mod-97 | no |
+| `cpf` | Brazilian CPF | checksum | no |
+| `cnpj` | Brazilian CNPJ | checksum | no |
+| `ogrn` | Russian OGRN | checksum | yes |
+| `ogrnip` | Russian OGRNIP | checksum | yes |
+| `pesel` | Polish PESEL | checksum | yes |
+| `aadhaar` | Indian Aadhaar | Verhoeff | yes |
+| `ssn` | US SSN | structural | yes |
+| `kpp` | Russian KPP | structural | yes |
+| `passport_ru` | Russian passport number | label only | yes |
+
+Checksum types use intentionally broad regexes; precision comes from the validator, so only values passing the checksum are redacted. Types marked "context label required" additionally need one of their labels (e.g. `INN`, `OGRN`, `passport`) to appear within `patterns.context_window` characters of the match (default `30`, override with `patterns.context_window`). When two rules match the same span, the context-gated rule wins.
+
+> Some context labels are Cyrillic strings (data used to find labels in real documents); this is the only place non-English text is allowed.
+
+> Cyrillic appears only inside context label literals (data used to find labels in real documents); all code, comments, docs, and tests are English.
+
 
 ## Tests
 

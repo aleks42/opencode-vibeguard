@@ -1,13 +1,12 @@
 {
   "name": "opencode-vibeguard",
   "version": "0.1.0",
-  "description": "OpenCode 插件：参考 VibeGuard 的占位符格式（__VG_...__）在发送给 LLM 前脱敏、在响应完成后自动还原、在工具执行前还原参数",
+  "description": "OpenCode plugin: redacts sensitive data into VibeGuard-style placeholders (__VG_...__) before sending to the LLM, restores it after the response, and restores tool arguments before local execution",
   "type": "module",
   "main": "./src/index.js",
   "exports": "./src/index.js",
   "files": [
     "src",
-    "README-zh.md",
     "vibeguard.config.json.example"
   ],
   "scripts": {

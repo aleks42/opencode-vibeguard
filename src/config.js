@@ -68,9 +68,9 @@ export function getConfigCandidates(directory) {
 }
 
 /**
- * 加载插件配置：
- * - 找不到配置或解析失败：返回 enabled=false（插件 no-op）
- * - 只做轻量校验，避免引入额外依赖
+ * Load plugin config:
+ * - Missing or unparseable config: returns enabled=false (plugin is a no-op)
+ * - Lightweight validation only, to avoid extra dependencies
  */
 export async function loadConfig(directory) {
   const candidates = getConfigCandidates(directory)

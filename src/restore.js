@@ -1,7 +1,7 @@
 import { getPlaceholderRegex } from "./session.js"
 
 /**
- * 还原字符串中的占位符；若占位符不在映射表中，则保持原样。
+ * Restore placeholders in a string; placeholders not in the mapping are left as-is.
  * @param {string} input
  * @param {{ prefix: string, lookup(ph: string): string | undefined }} session
  */

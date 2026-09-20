@@ -42,16 +42,34 @@ function insertCovered(covered, span) {
 }
 
 /**
- * 对输入文本进行脱敏替换，返回替换后的文本与命中信息。
- * 设计与 VibeGuard 的 redact 引擎一致：处理重叠命中，确保不会把占位符切碎。
+ * True when any context gate (string or RegExp) matches the window text.
+ * @param {Array<string|RegExp>} context
+ * @param {string} window
+ */
+function matchesContext(context, window) {
+  for (const item of context) {
+    if (item instanceof RegExp) {
+      if (item.test(window)) return true
+      continue
+    }
+    if (window.toLowerCase().includes(String(item).toLowerCase())) return true
+  }
+  return false
+}
+
+/**
+ * Redact the input text and return the redacted text plus match info.
+ * Design matches VibeGuard's redact engine: handles overlapping matches so that
+ * placeholders are never split apart.
  * @param {string} input
- * @param {{ keywords: Array<{value:string,category:string}>, regex: Array<{pattern:string,flags:string,category:string}>, exclude: Set<string> }} patterns
+ * @param {{ keywords: Array<{value:string,category:string}>, regex: Array<{pattern:string,flags:string,category:string}>, exclude: Set<string>, contextWindow?: number }} patterns
  * @param {{ getOrCreatePlaceholder(original: string, category: string): string }} session
  */
 export function redactText(input, patterns, session) {
   const text = String(input ?? "")
   if (!text) return { text, matches: [] }
 
+  const windowSize = Number.isFinite(patterns.contextWindow) ? patterns.contextWindow : 30
   const found = []
 
   for (const rule of patterns.keywords) {
@@ -81,16 +99,29 @@ export function redactText(input, patterns, session) {
       const end = start + m[0].length
       const original = text.slice(start, end)
       if (patterns.exclude.has(original)) continue
-      found.push({ start, end, original, category: rule.category })
+      // Checksum types: regex is loose, precision comes from validate (types
+      // without a checksum simply omit this field)
+      if (rule.validate && !rule.validate(original)) continue
+      // Context-gated types: require a label within the window around the match
+      if (rule.context) {
+        const from = Math.max(0, start - windowSize)
+        const to = Math.min(text.length, end + windowSize)
+        const window = `${text.slice(from, start)}\n${text.slice(end, to)}`
+        if (!matchesContext(rule.context, window)) continue
+      }
+      found.push({ start, end, original, category: rule.category, priority: rule.priority ?? 0 })
     }
   }
 
   if (found.length === 0) return { text, matches: [] }
 
-  // 右侧优先；同起点优先更长，便于把左侧大范围命中拆掉
+  // Right-most first; on equal start, longer first, so a large left-side match
+  // gets torn apart. Ties between rules on the same span go to the higher
+  // priority (context-gated) rule.
   found.sort((a, b) => {
     if (a.start !== b.start) return b.start - a.start
-    return b.end - a.end
+    if (a.end !== b.end) return b.end - a.end
+    return (b.priority ?? 0) - (a.priority ?? 0)
   })
 
   const planned = []
