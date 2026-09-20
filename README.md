@@ -114,11 +114,6 @@ List the ones you want in `patterns.builtin` (a builtin is only active if listed
 
 Checksum types use intentionally broad regexes; precision comes from the validator, so only values passing the checksum are redacted. Types marked "context label required" additionally need one of their labels (e.g. `INN`, `OGRN`, `passport`) to appear within `patterns.context_window` characters of the match (default `30`, override with `patterns.context_window`). When two rules match the same span, the context-gated rule wins.
 
-> Some context labels are Cyrillic strings (data used to find labels in real documents); this is the only place non-English text is allowed.
-
-> Cyrillic appears only inside context label literals (data used to find labels in real documents); all code, comments, docs, and tests are English.
-
-
 ## Tests
 
 ```bash
