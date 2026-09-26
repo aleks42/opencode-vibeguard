@@ -306,4 +306,3 @@ AGENTS.md
 
 # Local temporary files (keep locally if needed, do not commit)
 coverage/
-test/
