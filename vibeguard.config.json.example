@@ -12,16 +12,16 @@
     "retention_days": 90
   },
   "patterns": {
-    "keywords": [
-      { "value": "my-api-key-123", "category": "API_KEY" }
-    ],
+    "keywords": [],
     "regex": [
-      { "pattern": "sk-[A-Za-z0-9]{48}", "category": "OPENAI_KEY" },
+      { "pattern": "(?<![A-Za-z0-9_-])sk-(?:(?:proj|svcacct|service|admin)-[A-Za-z0-9_-]+|[A-Za-z0-9]+)T3BlbkFJ[A-Za-z0-9_-]+(?![A-Za-z0-9_-])", "category": "OPENAI_KEY" },
+      { "pattern": "(?<![A-Za-z0-9_-])sk-[A-Za-z0-9_-]{20,}(?![A-Za-z0-9_-])", "category": "OPENAI_KEY" },
       { "pattern": "(ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9]+", "category": "GITHUB_TOKEN" },
       { "pattern": "AKIA[0-9A-Z]{16}", "category": "AWS_ACCESS_KEY" }
     ],
     "builtin": [
       "email",
+      "credentials",
       "phone",
       "china_id",
       "uuid",

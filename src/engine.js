@@ -1,3 +1,5 @@
+import { getPlaceholderRegex } from "./session.js"
+
 function subtractCovered(start, end, covered) {
   if (start >= end) return []
   const out = []
@@ -74,8 +76,8 @@ function matchesContext(context, window) {
  * Design matches VibeGuard's redact engine: handles overlapping matches so that
  * placeholders are never split apart.
  * @param {string} input
- * @param {{ keywords: Array<{value:string,category:string}>, regex: Array<{pattern:string,flags:string,category:string}>, exclude: Array<RegExp>, contextWindow?: number }} patterns
- * @param {{ getOrCreatePlaceholder(original: string, category: string): string }} session
+ * @param {{ keywords: Array<{value:string,category:string}>, regex: Array<{pattern:string,flags:string,category:string,validate?:(v:string)=>boolean,context?:Array<string|RegExp>,denyContext?:Array<string|RegExp>,priority?:number}>, exclude: Array<RegExp>, contextWindow?: number }} patterns
+ * @param {{ prefix?: string, getOrCreatePlaceholder(original: string, category: string): string }} session
  * @param {(match: { category: string, placeholder: string, start: number, end: number, original: string }) => void} [onMatch] optional match collector; `original` is the real replaced value (for DEBUG logging)
  */
 export function redactText(input, patterns, session, onMatch) {
@@ -84,6 +86,22 @@ export function redactText(input, patterns, session, onMatch) {
 
   const windowSize = Number.isFinite(patterns.contextWindow) ? patterns.contextWindow : 30
   const found = []
+
+  // Never redact a value that already is a VibeGuard placeholder. Otherwise a
+  // generic rule such as `credentials` (which matches any token-ish run after an
+  // Authorization header, including `__VG_*__`) would re-wrap its own output and
+  // break restoration. A candidate is skipped only when it lies entirely inside
+  // an existing placeholder span, so a real secret glued to a placeholder is
+  // still masked.
+  const prefix = typeof session?.prefix === "string" && session.prefix ? session.prefix : "__VG_"
+  const placeholderSpans = []
+  for (const m of text.matchAll(getPlaceholderRegex(prefix))) {
+    const start = m.index ?? -1
+    if (start < 0) continue
+    placeholderSpans.push({ start, end: start + m[0].length })
+  }
+  const isInsidePlaceholder = (start, end) =>
+    placeholderSpans.some((span) => span.start <= start && end <= span.end)
 
   for (const rule of patterns.keywords) {
     const needle = rule.value
@@ -96,6 +114,7 @@ export function redactText(input, patterns, session, onMatch) {
       const end = pos + needle.length
       const original = text.slice(start, end)
       idx = end
+      if (isInsidePlaceholder(start, end)) continue
       if (isExcluded(patterns.exclude, original)) continue
       found.push({ start, end, original, category: rule.category })
     }
@@ -111,16 +130,22 @@ export function redactText(input, patterns, session, onMatch) {
       if (start < 0) continue
       const end = start + m[0].length
       const original = text.slice(start, end)
+      if (isInsidePlaceholder(start, end)) continue
       if (isExcluded(patterns.exclude, original)) continue
       // Checksum types: regex is loose, precision comes from validate (types
       // without a checksum simply omit this field)
       if (rule.validate && !rule.validate(original)) continue
-      // Context-gated types: require a label within the window around the match
-      if (rule.context) {
+      // Context-gated types: require a label within the window around the match;
+      // negative gates (`denyContext`) drop the match when a label appears in the
+      // text immediately before it (used e.g. to suppress `Version="a.b.c.d"`).
+      if (rule.context || rule.denyContext) {
         const from = Math.max(0, start - windowSize)
-        const to = Math.min(text.length, end + windowSize)
-        const window = `${text.slice(from, start)}\n${text.slice(end, to)}`
-        if (!matchesContext(rule.context, window)) continue
+        if (rule.context) {
+          const to = Math.min(text.length, end + windowSize)
+          const window = `${text.slice(from, start)}\n${text.slice(end, to)}`
+          if (!matchesContext(rule.context, window)) continue
+        }
+        if (rule.denyContext && matchesContext(rule.denyContext, text.slice(from, start))) continue
       }
       found.push({ start, end, original, category: rule.category, priority: rule.priority ?? 0 })
     }

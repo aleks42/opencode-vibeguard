@@ -26,11 +26,12 @@ Placeholder format (aligned with VibeGuard):
 ## Coverage and limitations
 
 - During streaming (`text-delta`) a placeholder may briefly appear; it is restored at `text-end`.
-- National phone numbers (no `+`) are redacted only when a nearby label (e.g. `phone`, `tel`, `mobile`) is present; an unlabelled national number is left intact. International `+` numbers need no label.
-- Checksum-based types (`snils`, `inn`, `iban`, `cpf`, `cnpj`, `ogrn`, `ogrnip`, `pesel`, `aadhaar`, `card`, `imei`) redact only values that pass their checksum; made-up or invalid numbers are left untouched.
+- National phone numbers (no `+`) are redacted only when a nearby label (e.g. `phone`, `tel`, `mobile`) is present; an unlabelled national number is left intact. Grouped numbers (`8 900 123 45 67`), raw `7`/`8` + 10-digit numbers and pure 10-digit national numbers (`8924187722`) are all covered, and camelCase labels such as `mobilePhone` count. International `+` numbers need no label.
+- Checksum-based types (`snils`, `inn`, `iban`, `cpf`, `cnpj`, `ogrn`, `ogrnip`, `pesel`, `aadhaar`, `card`, `imei`) redact only values that pass their checksum; made-up or invalid numbers are left untouched. SNILS is matched both formatted (no label) and as raw 11 digits (label required).
 - IBAN is matched only in contiguous form (e.g. `GB82WEST12345698765432`); a space-separated IBAN is **not** redacted.
 - `passport_ru` and `driver_license` share the same `2+2+6` digit shape and are distinguished solely by their context label.
-- Context-gated types (`inn` 10-digit, `ogrn`, `ogrnip`, `pesel`, `aadhaar`, `ssn`, `kpp`, `passport_ru`, `foreign_passport`, `driver_license`, `oms`, `bank_account`, and national `phone`) require a label within `patterns.context_window` characters (default `30`).
+- Context-gated types (`inn` 10-digit, `snils` raw, `ogrn`, `ogrnip`, `pesel`, `aadhaar`, `ssn`, `kpp`, `passport_ru`, `foreign_passport`, `driver_license`, `oms`, `bank_account`, and national `phone`) require a label within `patterns.context_window` characters (default `30`).
+- `credentials` matches the token after an `Authorization: Basic`/`Bearer`/`Digest` header; a bare `Basic <token>` without the header is left intact.
 - Placeholders are stable only within a single session; the HMAC secret is random per process, so they cannot be restored after a restart.
 
 ## Guiding the model to work with placeholders
@@ -134,6 +135,10 @@ Config lookup order (first match wins):
 
 See `vibeguard.config.json.example` for an example.
 
+### Custom regex
+
+`patterns.regex` is a list of `{ "pattern": "...", "category": "..." }` entries applied before the builtins (Go-style leading `(?i)`/`(?m)` is supported). The example config ships an OpenAI key rule as two patterns: a precise one anchored on the `T3BlbkFJ` marker (base64 of `OpenAI`) covering legacy, `proj`, `svcacct`, `service` and `admin` keys, plus a broad fallback for marker-less `sk-` keys of 20+ characters. Both use lookarounds, so an `sk-` that is merely part of a word (`task-`, `risk-`, `disk-`) is not matched.
+
 ### Built-in patterns
 
 List the ones you want in `patterns.builtin` (a builtin is only active if listed):
@@ -141,12 +146,13 @@ List the ones you want in `patterns.builtin` (a builtin is only active if listed
 | Name | Matches | Validation | Context label required |
 | --- | --- | --- | --- |
 | `email` | email addresses | - | no |
-| `phone` | phone numbers (`+` international without label; national grouped with label) | structural | national only |
+| `credentials` | `Authorization: Basic/Bearer/Digest <token>` values | - | no (header is the gate) |
+| `phone` | phone numbers (`+` international without label; national grouped, raw `7`/`8` + 10 digits, or pure 10 digits with label) | structural | national only |
 | `china_id` | Chinese ID numbers | - | no |
 | `uuid` | UUIDs | - | no |
-| `ipv4` | IPv4 addresses | - | no |
+| `ipv4` | IPv4 addresses | structural (octets 0-255) | no (suppressed next to version labels) |
 | `mac` | MAC addresses | - | no |
-| `snils` | Russian SNILS | checksum | no |
+| `snils` | Russian SNILS (formatted `xxx-xxx-xxx xx`, or raw 11 digits with label) | checksum | raw 11-digit only |
 | `inn` | Russian INN (10- and 12-digit) | checksum | 10-digit only |
 | `iban` | IBAN (any country) | mod-97 | no |
 | `cpf` | Brazilian CPF | checksum | no |
@@ -167,6 +173,8 @@ List the ones you want in `patterns.builtin` (a builtin is only active if listed
 | `ipv6` | IPv6 addresses | structural | no |
 
 Checksum types use intentionally broad regexes; precision comes from the validator, so only values passing the checksum are redacted. Types marked "context label required" additionally need one of their labels (e.g. `INN`, `OGRN`, `passport`) to appear within `patterns.context_window` characters of the match (default `30`, override with `patterns.context_window`). When two rules match the same span, the context-gated rule wins.
+
+`ipv4` is validated structurally: four octets, each in the `0-255` range and written without leading zeros. It also has boundaries, so it never matches inside a longer numeric or dotted run (e.g. `a.b.c.d24`), and a negative "version" gate suppresses values that are the right-hand side of a version attribute (`Version="a.b.c.d"`, `AssemblyVersion="a.b.c.d"`, `FileVersion = "a.b.c.d"`).
 
 ### Exclusions
 
@@ -227,7 +235,7 @@ plaintext and should be handled accordingly.
 Example lines:
 
 ```
-2026-09-26T12:34:56.789Z INFO redacted redacted=5 parts=2 categories=EMAIL:3,OPENAI_KEY:2 session=ses_x
+2026-09-26T12:34:56.789Z INFO redacted redacted=5 categories=EMAIL:3,OPENAI_KEY:2 session=ses_x
 2026-09-26T12:34:56.789Z DEBUG match category=API_KEY secret-value-123 -> __VG_API_KEY_c5c54cb4e629__ filePath=src/.env stream=output offset=1234 len=16 source=tool:read session=ses_x
 ```
 

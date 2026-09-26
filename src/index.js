@@ -86,7 +86,7 @@ export const VibeGuardPrivacy = async (ctx) => {
 
       session.cleanup()
 
-      const summary = { redacted: 0, parts: 0, categories: new Map() }
+      const summary = { redacted: 0, categories: new Map() }
 
       const track = (source, base) => (match) => {
         summary.redacted++
@@ -113,18 +113,14 @@ export const VibeGuardPrivacy = async (ctx) => {
           if (part.type === "text") {
             if (part.ignored) continue
             if (!part.text || typeof part.text !== "string") continue
-            const before = summary.redacted
             part.text = redactText(part.text, patterns, session, track(`text:${role}`)).text
-            if (summary.redacted > before) summary.parts++
             continue
           }
 
           // Reasoning text (some models/configs feed it into the prompt)
           if (part.type === "reasoning") {
             if (!part.text || typeof part.text !== "string") continue
-            const before = summary.redacted
             part.text = redactText(part.text, patterns, session, track(`reasoning:${role}`)).text
-            if (summary.redacted > before) summary.parts++
             continue
           }
 
@@ -140,42 +136,34 @@ export const VibeGuardPrivacy = async (ctx) => {
             // (restored by tool.execute.before). Without redacting here again, later
             // turns would send the plaintext args to the LLM.
             if (state.input && typeof state.input === "object") {
-              const before = summary.redacted
               redactDeep(state.input, patterns, session, track(`tool:${tool}`, base))
-              if (summary.redacted > before) summary.parts++
             }
 
             if (state.status === "completed" && typeof state.output === "string") {
-              const before = summary.redacted
               state.output = redactText(
                 state.output,
                 patterns,
                 session,
                 track(`tool:${tool}`, { ...base, stream: "output" }),
               ).text
-              if (summary.redacted > before) summary.parts++
               continue
             }
             if (state.status === "error" && typeof state.error === "string") {
-              const before = summary.redacted
               state.error = redactText(
                 state.error,
                 patterns,
                 session,
                 track(`tool:${tool}`, { ...base, stream: "error" }),
               ).text
-              if (summary.redacted > before) summary.parts++
               continue
             }
             if (state.status === "pending" && typeof state.raw === "string") {
-              const before = summary.redacted
               state.raw = redactText(
                 state.raw,
                 patterns,
                 session,
                 track(`tool:${tool}`, { ...base, stream: "raw" }),
               ).text
-              if (summary.redacted > before) summary.parts++
               continue
             }
           }
@@ -186,7 +174,6 @@ export const VibeGuardPrivacy = async (ctx) => {
         logger.info("redacted", {
           session: sessionID,
           redacted: summary.redacted,
-          parts: summary.parts,
           categories: formatCategories(summary.categories),
         })
       }

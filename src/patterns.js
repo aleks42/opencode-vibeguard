@@ -304,6 +304,17 @@ export function imei(input) {
 }
 
 /**
+ * IPv4 structural validation: exactly four decimal octets, each 0-255 and
+ * written without leading zeros (so four-part version numbers with an
+ * out-of-range or overlong component are rejected).
+ */
+export function ipv4(input) {
+  const parts = String(input ?? "").trim().split(".")
+  if (parts.length !== 4) return false
+  return parts.every((p) => /^(0|[1-9]\d{0,2})$/.test(p) && Number(p) <= 255)
+}
+
+/**
  * IPv6 structural validation: at most one `::`, each explicit group is 1-4 hex
  * digits, at least two colons, optional `%zone` suffix. Embedded IPv4
  * (`::ffff:192.0.2.1`) is intentionally not supported.
@@ -348,6 +359,7 @@ export const validators = {
   cardIin,
   card,
   imei,
+  ipv4,
   ipv6,
 }
 
@@ -375,6 +387,7 @@ function normalizeContext(context) {
 }
 
 const INN_CONTEXT = labelContext(["INN"], ["ИНН"])
+const SNILS_CONTEXT = labelContext(["SNILS"], ["СНИЛС"])
 const OGRN_CONTEXT = labelContext(["OGRN"], ["ОГРН"])
 const OGRNIP_CONTEXT = labelContext(["OGRNIP"], ["ОГРНИП"])
 const PESEL_CONTEXT = labelContext(["PESEL"], [])
@@ -382,11 +395,23 @@ const AADHAAR_CONTEXT = labelContext(["Aadhaar", "UIDAI"], [])
 const SSN_CONTEXT = labelContext(["SSN", "social security"], [])
 const KPP_CONTEXT = labelContext(["KPP"], ["КПП"])
 const PASSPORT_CONTEXT = labelContext(["passport"], ["паспорт", "серия"])
-const PHONE_CONTEXT = labelContext(["phone", "tel", "mobile", "cell", "call"], ["тел", "телефон", "моб", "сотов"])
+// `phone` is also listed as a plain substring so camelCase labels such as
+// `mobilePhone` / `workPhone` match (the word-boundary Latin regex would not).
+const PHONE_CONTEXT = labelContext(
+  ["phone", "tel", "mobile", "cell", "call"],
+  ["тел", "телефон", "моб", "сотов", "phone"],
+)
 const BANK_ACCOUNT_CONTEXT = labelContext(["account"], ["р/с", "расчетный", "расчётный", "лицевой", "номер счета", "номер счёта"])
 const OMS_CONTEXT = labelContext(["OMS", "medical insurance", "insurance policy"], ["полис", "омс", "медицинск"])
 const FOREIGN_PASSPORT_CONTEXT = labelContext(["foreign passport"], ["загранпаспорт", "заграничный", "паспорт гражданина"])
 const DRIVER_LICENSE_CONTEXT = labelContext(["driver", "driving license", "driving licence"], ["водительск", "вод. удост", "удостоверение водителя"])
+/**
+ * Negative gate for IPv4: a dotted quad that is the right-hand side of an
+ * assembly/package version attribute is a version, not an address. Anchored to
+ * the text immediately before the match (see `deny_context` in `engine.js`), so
+ * `Version="a.b.c.d"` / `AssemblyVersion="a.b.c.d"` are left intact.
+ */
+const VERSION_DENY_CONTEXT = [/version\s*=\s*["']?\s*$/i]
 
 /**
  * Built-in rules: ported from VibeGuard's builtin rules (with JS compatibility
@@ -425,10 +450,14 @@ const BUILTIN = new Map([
   [
     "ipv4",
     {
-      // Does not validate each octet 0-255; the goal is to cover common cases
-      pattern: String.raw`(?:\d{1,3}\.){3}\d{1,3}`,
+      // Boundaries keep dotted version numbers (`a.b.c.d24`) and partial matches
+      // inside longer numeric/dotted runs from being redacted; the validator
+      // enforces the 0-255 octet range and rejects leading zeros.
+      pattern: String.raw`(?<![\d.])(?:\d{1,3}\.){3}\d{1,3}(?![\d.])`,
       flags: "",
       category: "IPV4",
+      validate: ipv4,
+      denyContext: VERSION_DENY_CONTEXT,
     },
   ],
   [
@@ -441,12 +470,25 @@ const BUILTIN = new Map([
   ],
   [
     "snils",
-    {
-      pattern: String.raw`\d{3}-\d{3}-\d{3} \d{2}`,
-      flags: "",
-      category: "SNILS",
-      validate: snils,
-    },
+    [
+      {
+        // Formatted `xxx-xxx-xxx xx` is distinctive enough to need no label.
+        pattern: String.raw`\d{3}-\d{3}-\d{3} \d{2}`,
+        flags: "",
+        category: "SNILS",
+        validate: snils,
+      },
+      {
+        // Unformatted 11 digits also occur (`"snils":"12345678964"`), but the
+        // shape is too generic (phone/PESEL-like), so a nearby label is required;
+        // precision still comes from the checksum.
+        pattern: String.raw`(?<!\d)\d{11}(?!\d)`,
+        flags: "",
+        category: "SNILS",
+        validate: snils,
+        context: SNILS_CONTEXT,
+      },
+    ],
   ],
   [
     "inn",
@@ -567,6 +609,17 @@ const BUILTIN = new Map([
     },
   ],
   [
+    "credentials",
+    {
+      // `Authorization: Basic/Bearer/Digest <token>`: the header itself is the
+      // gate, so scheme plus a token-ish run is enough. A bare `Basic abcdef`
+      // (no header) is intentionally left alone.
+      pattern: String.raw`(?<=Authorization:\s{0,20}(?:Basic|Bearer|Digest)\s+)[A-Za-z0-9+/=._~-]{8,}`,
+      flags: "i",
+      category: "CREDENTIALS",
+    },
+  ],
+  [
     "phone",
     [
       {
@@ -584,6 +637,29 @@ const BUILTIN = new Map([
         // The second lookbehind stops it from re-matching the tail of a number
         // already covered by the international rule.
         pattern: String.raw`(?<![\d+])(?<!\+[\d\s().-]{0,20})(?:\(\d{2,4}\)|\d{2,4})(?:[\s.()-]+\d{2,4}){1,3}(?![\d])`,
+        flags: "",
+        category: "PHONE",
+        validate: nationalPhone,
+        context: PHONE_CONTEXT,
+      },
+      {
+        // Raw national number without separators (`89001234567`): the shape is
+        // too generic to trust on its own, so the label gate and validator do
+        // the work. Handles `mobilePhone: "89001234567"` (camelCase labels
+        // included). The second lookbehind stops a match on the tail of an
+        // international number `+7...`.
+        pattern: String.raw`(?<![\d+])(?<!\+[\d\s().-]{0,20})(?:7|8)\d{10}(?![\d])`,
+        flags: "",
+        category: "PHONE",
+        validate: nationalPhone,
+        context: PHONE_CONTEXT,
+      },
+      {
+        // Pure 10-digit national number (`8924187722`): the shape is too
+        // generic to trust on its own, so the label gate and validator do the
+        // work. Boundaries keep it from matching inside longer digit runs, so
+        // an 11-digit prefixed number is still covered by the rule above.
+        pattern: String.raw`(?<![\d+])(?<!\+[\d\s().-]{0,20})\d{10}(?![\d])`,
         flags: "",
         category: "PHONE",
         validate: nationalPhone,
@@ -704,12 +780,14 @@ export function buildPatternSet(patterns) {
     const items = Array.isArray(def) ? def : [def]
     for (const rule of items) {
       const context = normalizeContext(rule.context)
+      const denyContext = normalizeContext(rule.denyContext)
       regexRules.push({
         pattern: rule.pattern,
         flags: rule.flags,
         category: rule.category,
         validate: typeof rule.validate === "function" ? rule.validate : undefined,
         context,
+        denyContext,
         // Context-gated rules win when two rules compete for the same span.
         priority: context ? 1 : 0,
       })
