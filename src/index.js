@@ -4,6 +4,35 @@ import { PlaceholderSession } from "./session.js"
 import { redactText } from "./engine.js"
 import { redactDeep, restoreDeep } from "./deep.js"
 import { restoreText } from "./restore.js"
+import { createLogger } from "./log.js"
+
+/**
+ * Tool input fields that are safe to record as a source hint. Never includes
+ * free-form payloads (command/content/newString) which may themselves hold secrets.
+ */
+const SAFE_INPUT_KEYS = ["filePath", "path", "pattern", "glob", "include", "query"]
+
+function pickSafeInput(input) {
+  const out = {}
+  if (input && typeof input === "object") {
+    for (const key of SAFE_INPUT_KEYS) {
+      const value = input[key]
+      if (typeof value === "string" && value) out[key] = value
+    }
+  }
+  return out
+}
+
+function formatCategories(categories) {
+  return [...categories.entries()]
+    .sort((a, b) => (a[0] < b[0] ? -1 : 1))
+    .map(([name, count]) => `${name}:${count}`)
+    .join(",")
+}
+
+function bumpCategory(categories, category) {
+  categories.set(category, (categories.get(category) ?? 0) + 1)
+}
 
 /**
  * OpenCode plugin entrypoint:
@@ -14,17 +43,23 @@ import { restoreText } from "./restore.js"
  */
 export const VibeGuardPrivacy = async (ctx) => {
   const config = await loadConfig(ctx.directory)
-  const debug = Boolean(process.env.OPENCODE_VIBEGUARD_DEBUG) || Boolean(config.debug)
-
-  if (debug) {
-    const from = config.loadedFrom ? config.loadedFrom : "not found (plugin will no-op)"
-    console.log(`[opencode-vibeguard] config: ${from} enabled=${config.enabled}`)
-  }
 
   if (!config.enabled) return {}
 
   const patterns = buildPatternSet(config.patterns)
   const sessions = new Map()
+  const logger = createLogger({
+    enabled: config.log.enabled,
+    level: config.log.level,
+    file: config.log.file,
+    retentionDays: config.log.retentionDays,
+  })
+
+  logger.info("initialized", {
+    config: config.loadedFrom || "unknown",
+    log_level: logger.level,
+    log: logger.path,
+  })
 
   const getSession = (sessionID) => {
     const key = String(sessionID ?? "")
@@ -51,9 +86,25 @@ export const VibeGuardPrivacy = async (ctx) => {
 
       session.cleanup()
 
-      let changedTextParts = 0
+      const summary = { redacted: 0, parts: 0, categories: new Map() }
+
+      const track = (source, base) => (match) => {
+        summary.redacted++
+        bumpCategory(summary.categories, match.category)
+        logger.debug("match", {
+          session: sessionID,
+          category: match.category,
+          mapping: [match.original, match.placeholder],
+          source,
+          ...base,
+          ...(match.field ? { field: match.field } : {}),
+          offset: match.start,
+          len: match.end - match.start,
+        })
+      }
 
       for (const msg of msgs) {
+        const role = msg?.info?.role ?? "unknown"
         const parts = Array.isArray(msg?.parts) ? msg.parts : []
         for (const part of parts) {
           if (!part) continue
@@ -62,20 +113,18 @@ export const VibeGuardPrivacy = async (ctx) => {
           if (part.type === "text") {
             if (part.ignored) continue
             if (!part.text || typeof part.text !== "string") continue
-            const before = part.text
-            const after = redactText(before, patterns, session).text
-            if (after !== before) changedTextParts++
-            part.text = after
+            const before = summary.redacted
+            part.text = redactText(part.text, patterns, session, track(`text:${role}`)).text
+            if (summary.redacted > before) summary.parts++
             continue
           }
 
           // Reasoning text (some models/configs feed it into the prompt)
           if (part.type === "reasoning") {
             if (!part.text || typeof part.text !== "string") continue
-            const before = part.text
-            const after = redactText(before, patterns, session).text
-            if (after !== before) changedTextParts++
-            part.text = after
+            const before = summary.redacted
+            part.text = redactText(part.text, patterns, session, track(`reasoning:${role}`)).text
+            if (summary.redacted > before) summary.parts++
             continue
           }
 
@@ -84,40 +133,62 @@ export const VibeGuardPrivacy = async (ctx) => {
             const state = part.state
             if (!state || typeof state !== "object") continue
 
+            const tool = part.tool ?? "tool"
+            const base = pickSafeInput(state.input)
+
             // Deep-redact tool input as well: the real executed args contain plaintext
             // (restored by tool.execute.before). Without redacting here again, later
             // turns would send the plaintext args to the LLM.
             if (state.input && typeof state.input === "object") {
-              redactDeep(state.input, patterns, session)
+              const before = summary.redacted
+              redactDeep(state.input, patterns, session, track(`tool:${tool}`, base))
+              if (summary.redacted > before) summary.parts++
             }
 
             if (state.status === "completed" && typeof state.output === "string") {
-              const before = state.output
-              const after = redactText(before, patterns, session).text
-              if (after !== before) changedTextParts++
-              state.output = after
+              const before = summary.redacted
+              state.output = redactText(
+                state.output,
+                patterns,
+                session,
+                track(`tool:${tool}`, { ...base, stream: "output" }),
+              ).text
+              if (summary.redacted > before) summary.parts++
               continue
             }
             if (state.status === "error" && typeof state.error === "string") {
-              const before = state.error
-              const after = redactText(before, patterns, session).text
-              if (after !== before) changedTextParts++
-              state.error = after
+              const before = summary.redacted
+              state.error = redactText(
+                state.error,
+                patterns,
+                session,
+                track(`tool:${tool}`, { ...base, stream: "error" }),
+              ).text
+              if (summary.redacted > before) summary.parts++
               continue
             }
             if (state.status === "pending" && typeof state.raw === "string") {
-              const before = state.raw
-              const after = redactText(before, patterns, session).text
-              if (after !== before) changedTextParts++
-              state.raw = after
+              const before = summary.redacted
+              state.raw = redactText(
+                state.raw,
+                patterns,
+                session,
+                track(`tool:${tool}`, { ...base, stream: "raw" }),
+              ).text
+              if (summary.redacted > before) summary.parts++
               continue
             }
           }
         }
       }
 
-      if (debug && changedTextParts > 0) {
-        console.log(`[opencode-vibeguard] redacted before request: ${changedTextParts} text segment(s) changed`)
+      if (summary.redacted > 0) {
+        logger.info("redacted", {
+          session: sessionID,
+          redacted: summary.redacted,
+          parts: summary.parts,
+          categories: formatCategories(summary.categories),
+        })
       }
     },
 
@@ -127,11 +198,30 @@ export const VibeGuardPrivacy = async (ctx) => {
       const session = getSession(input?.sessionID)
       if (!session) return
       session.cleanup()
-      const before = output.text
-      const after = restoreText(before, session)
-      output.text = after
-      if (debug && after !== before) {
-        console.log("[opencode-vibeguard] restored after response: 1 text segment changed")
+
+      const summary = { restored: 0, categories: new Map() }
+      const track = (restored) => {
+        summary.restored++
+        bumpCategory(summary.categories, restored.category)
+        logger.debug("restore", {
+          session: input?.sessionID,
+          category: restored.category,
+          mapping: [restored.placeholder, restored.original],
+          source: "text:assistant",
+          offset: restored.start,
+          len: restored.end - restored.start,
+        })
+      }
+
+      output.text = restoreText(output.text, session, track)
+
+      if (summary.restored > 0) {
+        logger.info("restored", {
+          session: input?.sessionID,
+          restored: summary.restored,
+          source: "text:assistant",
+          categories: formatCategories(summary.categories),
+        })
       }
     },
 
@@ -139,7 +229,33 @@ export const VibeGuardPrivacy = async (ctx) => {
       const session = getSession(input?.sessionID)
       if (!session) return
       session.cleanup()
-      restoreDeep(output?.args, session)
+
+      const tool = input?.tool ?? "tool"
+      const summary = { restored: 0, categories: new Map() }
+      const track = (restored) => {
+        summary.restored++
+        bumpCategory(summary.categories, restored.category)
+        logger.debug("restore", {
+          session: input?.sessionID,
+          category: restored.category,
+          mapping: [restored.placeholder, restored.original],
+          source: `tool:${tool}`,
+          field: restored.field,
+          offset: restored.start,
+          len: restored.end - restored.start,
+        })
+      }
+
+      restoreDeep(output?.args, session, track)
+
+      if (summary.restored > 0) {
+        logger.info("restored", {
+          session: input?.sessionID,
+          restored: summary.restored,
+          source: `tool:${tool}`,
+          categories: formatCategories(summary.categories),
+        })
+      }
     },
   }
 }

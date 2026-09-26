@@ -1,10 +1,15 @@
 {
   "enabled": true,
-  "debug": false,
   "placeholder_prefix": "__VG_",
   "session": {
     "ttl": "1h",
     "max_mappings": 100000
+  },
+  "log": {
+    "enabled": true,
+    "level": "info",
+    "file": null,
+    "retention_days": 90
   },
   "patterns": {
     "keywords": [

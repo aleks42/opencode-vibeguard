@@ -34,7 +34,6 @@ function normalizeConfig(raw) {
   const cfg = raw && typeof raw === "object" ? raw : {}
 
   const enabled = Boolean(cfg.enabled)
-  const debug = Boolean(cfg.debug)
   const prefix = typeof cfg.placeholder_prefix === "string" && cfg.placeholder_prefix ? cfg.placeholder_prefix : "__VG_"
 
   const session = cfg.session && typeof cfg.session === "object" ? cfg.session : {}
@@ -44,13 +43,24 @@ function normalizeConfig(raw) {
 
   const patterns = cfg.patterns && typeof cfg.patterns === "object" ? cfg.patterns : {}
 
+  const logCfg = cfg.log && typeof cfg.log === "object" ? cfg.log : {}
+  const log = {
+    enabled: logCfg.enabled === undefined ? true : Boolean(logCfg.enabled),
+    level: logCfg.level === "debug" ? "debug" : "info",
+    file: typeof logCfg.file === "string" && logCfg.file ? logCfg.file : null,
+    retentionDays:
+      Number.isFinite(logCfg.retention_days) && Number(logCfg.retention_days) >= 0
+        ? Number(logCfg.retention_days)
+        : 90,
+  }
+
   return {
     enabled,
-    debug,
     prefix,
     ttlMs,
     maxMappings,
     patterns,
+    log,
   }
 }
 

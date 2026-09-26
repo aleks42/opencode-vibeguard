@@ -76,8 +76,9 @@ function matchesContext(context, window) {
  * @param {string} input
  * @param {{ keywords: Array<{value:string,category:string}>, regex: Array<{pattern:string,flags:string,category:string}>, exclude: Array<RegExp>, contextWindow?: number }} patterns
  * @param {{ getOrCreatePlaceholder(original: string, category: string): string }} session
+ * @param {(match: { category: string, placeholder: string, start: number, end: number, original: string }) => void} [onMatch] optional match collector; `original` is the real replaced value (for DEBUG logging)
  */
-export function redactText(input, patterns, session) {
+export function redactText(input, patterns, session, onMatch) {
   const text = String(input ?? "")
   if (!text) return { text, matches: [] }
 
@@ -159,6 +160,9 @@ export function redactText(input, patterns, session) {
     const placeholder = session.getOrCreatePlaceholder(m.original, m.category)
     out = out.slice(0, m.start) + placeholder + out.slice(m.end)
     m.placeholder = placeholder
+    if (typeof onMatch === "function") {
+      onMatch({ category: m.category, placeholder, start: m.start, end: m.end, original: m.original })
+    }
   }
 
   return { text: out, matches: planned }

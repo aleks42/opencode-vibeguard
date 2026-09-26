@@ -179,16 +179,58 @@ cd opencode-vibeguard
 npm test
 ```
 
-## Debug
+## Logging
 
-Enable debug logs (will not print any plaintext secrets; only config path and replace counts):
+The plugin writes its own log file next to `opencode.log`, named with the local
+date and rotated daily:
 
-```bash
-OPENCODE_VIBEGUARD_DEBUG=1 opencode .
+```
+<opencode data dir>/opencode/log/vibeguard-<YYYY-MM-DD>.log
 ```
 
-Or set in `vibeguard.config.json`:
+The opencode data dir is the same one opencode itself uses: `XDG_DATA_HOME` if
+set, otherwise `~/.local/share` (on Windows that is
+`C:\Users\<you>\.local\share\opencode\log`). Plugin logs are always a separate
+file; `opencode.log` is never touched.
+
+Logging is configured only in `vibeguard.config.json` (`log` section):
 
 ```json
-{ "debug": true }
+{
+  "log": {
+    "enabled": true,
+    "level": "info",
+    "file": null,
+    "retention_days": 90
+  }
+}
 ```
+
+| Key | Default | Description |
+| --- | --- | --- |
+| `enabled` | `true` | Turn the file log on/off. |
+| `level` | `"info"` | `"info"` writes one summary line per hook call (and only when something changed). `"debug"` additionally writes one line per match/restore, including the real match as a `left -> right` pair. |
+| `file` | `null` | Absolute path override. When set, daily rotation and retention are disabled. |
+| `retention_days` | `90` | Delete the plugin's own `vibeguard-*.log` files older than this many days. `0` keeps them forever. Other files (including `opencode.log`) are never deleted. |
+
+At `level: "info"` lines contain only metadata: category, placeholder, position,
+and a best-effort source hint (`source=tool:read`, `source=text:assistant`, etc).
+`source` and `session` are always reported last. For `bash` only the tool name is
+recorded (the command is not logged); free-form tool payloads are never logged.
+
+**At `level: "debug"` the real value is logged** as a bare `left -> right` pair
+on match/restore lines: on a redaction match the real value is on the left and
+its placeholder on the right, while a restore logs the reverse
+(`placeholder -> real value`). A debug log file therefore contains secrets/PII in
+plaintext and should be handled accordingly.
+
+Example lines:
+
+```
+2026-09-26T12:34:56.789Z INFO redacted redacted=5 parts=2 categories=EMAIL:3,OPENAI_KEY:2 session=ses_x
+2026-09-26T12:34:56.789Z DEBUG match category=API_KEY secret-value-123 -> __VG_API_KEY_c5c54cb4e629__ filePath=src/.env stream=output offset=1234 len=16 source=tool:read session=ses_x
+```
+
+When no config file is found or `enabled=false`, the plugin is a no-op and writes
+no logs at all. Note: the source file is only a hint — for `bash` the file is
+unknown, and text/reasoning parts have no file.
