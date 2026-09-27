@@ -31,6 +31,7 @@ Placeholder format (aligned with VibeGuard):
 - IBAN is matched only in contiguous form (e.g. `GB82WEST12345698765432`); a space-separated IBAN is **not** redacted.
 - `passport_ru` and `driver_license` share the same `2+2+6` digit shape and are distinguished solely by their context label.
 - Context-gated types (`inn` 10-digit, `snils` raw, `ogrn`, `ogrnip`, `pesel`, `aadhaar`, `ssn`, `kpp`, `passport_ru`, `foreign_passport`, `driver_license`, `oms`, `bank_account`, and national `phone`) require a label within `patterns.context_window` characters (default `30`).
+- `organization` masks a legal-form abbreviation followed by a **quoted** name (e.g. `ООО "Ромашка"`, `АО «Газпром»`, `НИИ «Прикладной физики»`, `ГК «Ростех»`, `LLC "Acme"`, `GmbH „Firma“`) as a whole, plus (`в/ч 12345`). For Latin forms it also masks an unquoted name followed by an unambiguous form (`Acme Inc.`, `Total S.A.`, `Siemens GmbH`); ambiguous short forms (`SA`, `AS`, `AB`, `SE`, `PC`, `Co`, `Oy`) and common words (`Company`) are matched only when quoted. Unquoted Russian names (`ООО Ромашка`, `ИП Иванов`) and bare forms without a name are left intact.
 - `credentials` matches the token after an `Authorization: Basic`/`Bearer`/`Digest` header; a bare `Basic <token>` without the header is left intact.
 - Placeholders are stable only within a single session; each session gets its own random HMAC secret, so the same value maps to a different placeholder in every session and cannot be restored after a restart.
 
@@ -141,7 +142,7 @@ See `vibeguard.config.json.example` for an example.
 
 ### Built-in patterns
 
-List the ones you want in `patterns.builtin` (a builtin is only active if listed):
+All of the following built-ins are always active:
 
 | Name | Matches | Validation | Context label required |
 | --- | --- | --- | --- |
@@ -168,6 +169,7 @@ List the ones you want in `patterns.builtin` (a builtin is only active if listed
 | `driver_license` | Russian driving licence number | label only | yes |
 | `oms` | Russian compulsory medical insurance policy (16-digit ENP) | label only | yes |
 | `bank_account` | Russian 20-digit settlement account | label only (BIK-dependent checksum) | yes |
+| `organization` | Organization names (`ООО "Ромашка"`, `АО «Газпром»`, `LLC "Acme"`, `Acme Inc.`, `Total S.A.`) and (`в/ч 12345`) | - | no (the legal form is the gate) |
 | `card` | Payment cards (Visa/MasterCard/Mir/Amex/JCB/Diners/Discover) | Luhn + IIN | no |
 | `imei` | IMEI device identifiers | Luhn | no |
 | `ipv6` | IPv6 addresses | structural | no |

@@ -175,7 +175,7 @@ test("plugin end-to-end: debug logs metadata and the plaintext secret", async ()
       JSON.stringify({
         enabled: true,
         log: { enabled: true, level: "debug", file: null, retention_days: 90 },
-        patterns: { builtin: ["email"], exclude: [] },
+        patterns: { exclude: [] },
       }),
       "utf8",
     )
@@ -244,7 +244,7 @@ test("plugin end-to-end: info level never logs the plaintext secret", async () =
       JSON.stringify({
         enabled: true,
         log: { enabled: true, level: "info", file: null, retention_days: 90 },
-        patterns: { builtin: ["email"], exclude: [] },
+        patterns: { exclude: [] },
       }),
       "utf8",
     )

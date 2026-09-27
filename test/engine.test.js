@@ -13,9 +13,7 @@ function redact(text, patterns) {
   return redactText(text, patterns, makeSession()).text
 }
 
-const checksumPatterns = buildPatternSet({
-  builtin: ["snils", "inn", "iban", "cpf", "cnpj"],
-})
+const checksumPatterns = buildPatternSet()
 
 test("redacts only when the checksum is valid", () => {
   const out = redact("SNILS 112-233-445 95 is valid", checksumPatterns)
@@ -53,7 +51,6 @@ test("masks CPF/CNPJ only with a valid checksum", () => {
 
 test("exclude still works", () => {
   const patterns = buildPatternSet({
-    builtin: ["ipv4"],
     exclude: ["127.0.0.1"],
   })
   assert.equal(redact("host 127.0.0.1", patterns), "host 127.0.0.1")
@@ -62,7 +59,6 @@ test("exclude still works", () => {
 
 test("exclude matches a domain inside an email, case-insensitively", () => {
   const patterns = buildPatternSet({
-    builtin: ["email"],
     exclude: ["example.com"],
   })
   const lower = "user" + "@" + "example.com"
@@ -75,7 +71,6 @@ test("exclude matches a domain inside an email, case-insensitively", () => {
 
 test("exclude respects alphanumeric dots and dashes boundaries", () => {
   const patterns = buildPatternSet({
-    builtin: ["email", "ipv4"],
     exclude: ["example.com", "127.0.0.1"],
   })
   // Contains `example.com` but is preceded by a word char, so not excluded.
@@ -90,7 +85,6 @@ test("exclude respects alphanumeric dots and dashes boundaries", () => {
 })
 
 const ipv4Patterns = buildPatternSet({
-  builtin: ["ipv4"],
   exclude: ["127.0.0.1", "0.0.0.0"],
 })
 
@@ -115,14 +109,12 @@ test("ipv4 still redacts real addresses without a version label", () => {
   assert.equal(redact("host 127.0.0.1", ipv4Patterns), "host 127.0.0.1")
 })
 
-test("builtin is disabled when not listed in the config", () => {
-  const patterns = buildPatternSet({ builtin: [] })
-  assert.equal(redact("GB82WEST12345698765432", patterns), "GB82WEST12345698765432")
+test("all builtins are active without the builtin key", () => {
+  const patterns = buildPatternSet({})
+  assert.match(redact("GB82WEST12345698765432", patterns), /__VG_IBAN_[a-f0-9]{12}__/)
 })
 
-const contextPatterns = buildPatternSet({
-  builtin: ["inn", "ogrn", "aadhaar", "ssn", "kpp", "passport_ru"],
-})
+const contextPatterns = buildPatternSet()
 
 test("context-gated rule matches only with a nearby label", () => {
   assert.match(redact("INN 7707083893", contextPatterns), /__VG_INN_[a-f0-9]{12}__/)
@@ -141,7 +133,7 @@ test("label outside the context window does not trigger", () => {
 test("context_window is configurable", () => {
   const far = `INN${" ".repeat(10)}7707083893`
   assert.match(redact(far, contextPatterns), /__VG_INN_/)
-  assert.equal(redact(far, buildPatternSet({ builtin: ["inn"], context_window: 5 })), far)
+  assert.equal(redact(far, buildPatternSet({ context_window: 5 })), far)
 })
 
 test("latin labels respect word boundaries (do not match inside words)", () => {
@@ -166,7 +158,7 @@ test("KPP and Russian passport require labels", () => {
   assert.equal(redact("number 2202 123456", contextPatterns), "number 2202 123456")
 })
 
-const phonePatterns = buildPatternSet({ builtin: ["phone"] })
+const phonePatterns = buildPatternSet()
 
 test("international phone is redacted without a label", () => {
   assert.match(redact("call +7 (999) 123-45-67", phonePatterns), /__VG_PHONE_[a-f0-9]{12}__/)
@@ -184,12 +176,12 @@ test("national phone is masked exactly once (no double match on prefixed numbers
 })
 
 test("china_phone builtin was removed (bare 11-digit mobile is no longer matched)", () => {
-  const patterns = buildPatternSet({ builtin: ["china_phone", "phone"] })
+  const patterns = buildPatternSet()
   assert.equal(redact("id 13800138000", patterns), "id 13800138000")
 })
 
 test("raw 11-digit SNILS is redacted only with a nearby label", () => {
-  const patterns = buildPatternSet({ builtin: ["snils"] })
+  const patterns = buildPatternSet()
   assert.match(redact('"snils": "12345678964"', patterns), /__VG_SNILS_[a-f0-9]{12}__/)
   assert.equal(redact('"x": "12345678964"', patterns), '"x": "12345678964"')
 })
@@ -225,7 +217,7 @@ test("10-digit rule does not match inside a longer digit run", () => {
   assert.equal(out, "tel 892418772234")
 })
 
-const credentialsPatterns = buildPatternSet({ builtin: ["credentials"] })
+const credentialsPatterns = buildPatternSet()
 
 test("credentials redacts Authorization header tokens", () => {
   const basic = redact("Authorization: Basic QWxhZGRpbjpvcGVuIHNlc2FtZQ==", credentialsPatterns)
@@ -258,9 +250,7 @@ test("credentials leaves a placeholder after the header untouched", () => {
   )
 })
 
-const newPatterns = buildPatternSet({
-  builtin: ["card", "imei", "ipv6", "bank_account", "oms", "foreign_passport", "driver_license"],
-})
+const newPatterns = buildPatternSet()
 
 test("card is redacted by Luhn + IIN without a label", () => {
   assert.match(redact("pay 4111111111111111", newPatterns), /^pay __VG_CARD_[a-f0-9]{12}__$/)
@@ -286,6 +276,59 @@ test("bank_account, oms, foreign and driver documents require labels", () => {
 
   assert.match(redact("загранпаспорт 51 1234567", newPatterns), /__VG_FOREIGN_PASSPORT_/)
   assert.match(redact("водительское 99 99 123456", newPatterns), /__VG_DRIVER_LICENSE_/)
+})
+
+const orgPatterns = buildPatternSet()
+
+test("organization masks a legal form plus quoted name in full", () => {
+  assert.match(redact('ООО "Ромашка"', orgPatterns), /^__VG_ORG_NAME_[a-f0-9]{12}__$/)
+  assert.match(redact("АО «Газпром»", orgPatterns), /^__VG_ORG_NAME_[a-f0-9]{12}__$/)
+  assert.match(redact("НИИ «Прикладной физики»", orgPatterns), /^__VG_ORG_NAME_[a-f0-9]{12}__$/)
+  assert.match(redact("ГК «Ростех»", orgPatterns), /^__VG_ORG_NAME_[a-f0-9]{12}__$/)
+})
+
+test("organization masks", () => {
+  assert.match(redact("в/ч 12345", orgPatterns), /^__VG_ORG_NAME_[a-f0-9]{12}__$/)
+  assert.match(redact("в/ч № 12345", orgPatterns), /^__VG_ORG_NAME_[a-f0-9]{12}__$/)
+  assert.match(redact("войсковая часть 12345", orgPatterns), /^__VG_ORG_NAME_[a-f0-9]{12}__$/)
+})
+
+test("organization does not match a bare legal form or unquoted name", () => {
+  const forms = ["ООО", "АО", "ГК РФ", "ПАО Газпром"]
+  for (const text of forms) assert.equal(redact(text, orgPatterns), text)
+})
+
+test("organization does not match a shorter form inside a longer one", () => {
+  const out = redact("ПАО «Газпром»", orgPatterns)
+  assert.match(out, /^__VG_ORG_NAME_[a-f0-9]{12}__$/)
+  assert.equal((out.match(/__VG_ORG_NAME_/g) ?? []).length, 1)
+})
+
+test("organization masks a Latin legal form plus quoted name (broad set)", () => {
+  assert.match(redact('LLC "Acme"', orgPatterns), /^__VG_ORG_NAME_[a-f0-9]{12}__$/)
+  assert.match(redact("GmbH „Firma“", orgPatterns), /^__VG_ORG_NAME_[a-f0-9]{12}__$/)
+  assert.match(redact("S.A. «Total»", orgPatterns), /^__VG_ORG_NAME_[a-f0-9]{12}__$/)
+  assert.match(redact('Co "Acme"', orgPatterns), /^__VG_ORG_NAME_[a-f0-9]{12}__$/)
+})
+
+test("organization masks a Latin name plus trailing legal form", () => {
+  assert.match(redact("Acme Inc.", orgPatterns), /^__VG_ORG_NAME_[a-f0-9]{12}__$/)
+  assert.match(redact("Acme LLC", orgPatterns), /^__VG_ORG_NAME_[a-f0-9]{12}__$/)
+  assert.match(redact("Total S.A.", orgPatterns), /^__VG_ORG_NAME_[a-f0-9]{12}__$/)
+  assert.match(redact("Siemens GmbH", orgPatterns), /^__VG_ORG_NAME_[a-f0-9]{12}__$/)
+  assert.match(redact("Acme Corp.", orgPatterns), /^__VG_ORG_NAME_[a-f0-9]{12}__$/)
+  assert.match(redact("Zurich Insurance Group GmbH", orgPatterns), /^__VG_ORG_NAME_[a-f0-9]{12}__$/)
+})
+
+test("organization leaves ambiguous Latin forms and ordinary text intact", () => {
+  const untouched = ["Siemens AG", "Acme SA", "Acme PC", "the company", "Inc", "Acme Co-founder"]
+  for (const text of untouched) assert.equal(redact(text, orgPatterns), text)
+})
+
+test("organization matches a Latin quoted form once", () => {
+  const out = redact("SASU «Acme»", orgPatterns)
+  assert.match(out, /^__VG_ORG_NAME_[a-f0-9]{12}__$/)
+  assert.equal((out.match(/__VG_ORG_NAME_/g) ?? []).length, 1)
 })
 
 const openaiPatterns = buildPatternSet({

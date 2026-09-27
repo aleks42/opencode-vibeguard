@@ -64,7 +64,7 @@ test("plugin keeps a session stable and rotates the placeholder across sessions"
       JSON.stringify({
         enabled: true,
         log: { enabled: false },
-        patterns: { builtin: ["email"], exclude: [] },
+        patterns: { exclude: [] },
       }),
       "utf8",
     )

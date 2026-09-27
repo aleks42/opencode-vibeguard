@@ -740,6 +740,47 @@ const BUILTIN = new Map([
       context: DRIVER_LICENSE_CONTEXT,
     },
   ],
+  [
+    "organization",
+    [
+      {
+        // Russian organization name: a legal-form abbreviation followed by a
+        // quoted name. The legal form itself is the gate, so no context label is
+        // needed. The whole string (form + name) is masked. The lookbehind blocks
+        // a shorter form from matching inside a longer one (e.g. `АО` in `ПАО`),
+        // and the longest forms are listed first for the same reason.
+        pattern: String.raw`(?<![А-ЯЁа-яё])(?:ФГБНУ|ФГБОУ|ФГУП|ФГБУ|ФГАУ|ГУП|МУП|ГБУ|МБУ|ГКУ|ОГУ|ФКУ|АНО|НКО|РОО|НИИ|НПО|ТСЖ|СНТ|ДНТ|ЧОУ|ООО|ОАО|ЗАО|ПАО|ОДО|КБ|ЧУ|ПК|ГК|АО|ИП)\s*[«"„“']\s*[^»"“”'\n]{2,120}?[»"“”']`,
+        flags: "i",
+        category: "ORG_NAME",
+      },
+      {
+        // `в/ч 12345`, `в\ч №12345`, `войсковая часть 12345`, with an optional letter suffix.
+        pattern: String.raw`(?<![А-ЯЁа-яё])(?:в/ч|в\\ч|войсковая\s+часть)\s*№?\s*\d{3,6}(?:-[А-ЯЁа-яё])?`,
+        flags: "i",
+        category: "ORG_NAME",
+      },
+      {
+        // Latin (US/EU) organization name: a legal-form abbreviation followed by
+        // a quoted name (`LLC "Acme"`, `GmbH „Firma“`). The quote anchors the
+        // match, so the broad form set is safe here, including ambiguous short
+        // forms that are excluded from the trailing rule below. Case-sensitive.
+        pattern: String.raw`(?<![A-Za-z0-9])(?:Company|Corporation|PLLC|LLP|LLC|PLC|LP|Ltd|Inc|Corp|Co|PC|KGaA|GmbH|OHG|UG|KG|AG|SARL|SASU|SAS|SNC|SRL|SpA|A/S|ApS|AB|AS|Oy|B\.V\.|N\.V\.|S\.L\.|S\.A\.|e\.V\.|eV)\.?\s*[«"„“']\s*[^»"“”'\n]{2,120}?[»"“”']`,
+        flags: "",
+        category: "ORG_NAME",
+      },
+      {
+        // Latin organization name: an initial-capital name followed by a legal
+        // form (`Acme Inc.`, `Total S.A.`, `Siemens GmbH`). Only unambiguous forms
+        // are allowed here; ambiguous short forms (SA, AS, AB, SE, PC, Co, Oy) and
+        // common words (Company) would otherwise mask ordinary text. Case-sensitive,
+        // a determiner lookahead drops `The Company`, and the trailing boundary
+        // rejects `Acme Co-founder`.
+        pattern: String.raw`(?<![A-Za-z0-9])(?!(?:The|This|That|Our|Your|Their|Its|My|A|An)\s)(?:[A-Z][A-Za-z0-9&.'-]*(?:\s+[A-Z][A-Za-z0-9&.'-]*){0,3})\s+(?:Corporation|PLLC|GmbH|KGaA|SARL|SASU|SRL|SpA|OHG|ApS|S\.A\.|S\.L\.|B\.V\.|N\.V\.|A/S|e\.V\.|LLC|LLP|PLC|Ltd|Inc|Corp)\.?(?![A-Za-z0-9-])`,
+        flags: "",
+        category: "ORG_NAME",
+      },
+    ],
+  ],
 ])
 
 export function buildPatternSet(patterns) {
@@ -747,7 +788,6 @@ export function buildPatternSet(patterns) {
 
   const keywords = Array.isArray(raw.keywords) ? raw.keywords : []
   const regex = Array.isArray(raw.regex) ? raw.regex : []
-  const builtin = Array.isArray(raw.builtin) ? raw.builtin : []
   const exclude = Array.isArray(raw.exclude) ? raw.exclude : []
 
   const keywordRules = keywords
@@ -772,11 +812,8 @@ export function buildPatternSet(patterns) {
     regexRules.push({ pattern: peeled.pattern, flags: peeled.flags, category })
   }
 
-  for (const name of builtin) {
-    const key = String(name ?? "").trim()
-    if (!key) continue
-    const def = BUILTIN.get(key)
-    if (!def) continue
+  // All built-ins are always active.
+  for (const def of BUILTIN.values()) {
     const items = Array.isArray(def) ? def : [def]
     for (const rule of items) {
       const context = normalizeContext(rule.context)
