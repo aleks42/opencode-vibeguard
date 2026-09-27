@@ -32,7 +32,7 @@ Placeholder format (aligned with VibeGuard):
 - `passport_ru` and `driver_license` share the same `2+2+6` digit shape and are distinguished solely by their context label.
 - Context-gated types (`inn` 10-digit, `snils` raw, `ogrn`, `ogrnip`, `pesel`, `aadhaar`, `ssn`, `kpp`, `passport_ru`, `foreign_passport`, `driver_license`, `oms`, `bank_account`, and national `phone`) require a label within `patterns.context_window` characters (default `30`).
 - `credentials` matches the token after an `Authorization: Basic`/`Bearer`/`Digest` header; a bare `Basic <token>` without the header is left intact.
-- Placeholders are stable only within a single session; the HMAC secret is random per process, so they cannot be restored after a restart.
+- Placeholders are stable only within a single session; each session gets its own random HMAC secret, so the same value maps to a different placeholder in every session and cannot be restored after a restart.
 
 ## Guiding the model to work with placeholders
 
